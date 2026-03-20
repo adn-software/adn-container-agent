@@ -2,8 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Instalar Docker CLI para ejecutar comandos docker
-RUN apk add --no-cache docker-cli
+# Instalar Docker CLI y Docker Compose para ejecutar comandos docker
+RUN apk add --no-cache docker-cli docker-cli-compose
 
 # Copiar archivos de dependencias
 COPY package*.json ./
