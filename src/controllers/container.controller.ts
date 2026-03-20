@@ -41,9 +41,20 @@ export class ContainerController {
       const containerExists = await fileService.fileExists(containerDir);
 
       if (containerExists) {
+        logger.warn(`Container directory already exists: ${containerDir}`);
+        
+        // Verificar si el contenedor Docker también existe
+        const containerName = `mariadb-${slug}`;
+        const dockerExists = await dockerService.containerExists(containerName);
+        
         return res.status(409).json({
           error: 'Container directory already exists',
           slug,
+          directory: containerDir,
+          dockerContainerExists: dockerExists,
+          suggestion: dockerExists 
+            ? 'Container is already running. Use a different slug or delete the existing container first.'
+            : 'Directory exists but container is not running. You may need to manually clean up the directory.',
         });
       }
 
