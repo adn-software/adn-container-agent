@@ -5,6 +5,8 @@ import { logger } from './logger.service';
 const execAsync = promisify(exec);
 
 export class DockerService {
+  private composeCommand: string | null = null;
+
   async executeCommand(command: string): Promise<{ stdout: string; stderr: string }> {
     try {
       logger.info(`Executing: ${command}`);
@@ -14,6 +16,28 @@ export class DockerService {
       logger.error(`Command failed: ${command}`, error);
       throw error;
     }
+  }
+
+  async detectComposeCommand(): Promise<string> {
+    if (this.composeCommand) {
+      return this.composeCommand;
+    }
+
+    try {
+      await execAsync('docker compose version');
+      this.composeCommand = 'docker compose';
+      logger.info('Using docker compose (v2)');
+    } catch {
+      try {
+        await execAsync('docker-compose version');
+        this.composeCommand = 'docker-compose';
+        logger.info('Using docker-compose (v1)');
+      } catch {
+        throw new Error('Neither docker compose nor docker-compose is available');
+      }
+    }
+
+    return this.composeCommand;
   }
 
   async listContainers(): Promise<any[]> {
@@ -73,11 +97,13 @@ export class DockerService {
   }
 
   async composeUp(directory: string): Promise<void> {
-    await this.executeCommand(`cd ${directory} && docker compose up -d`);
+    const composeCmd = await this.detectComposeCommand();
+    await this.executeCommand(`cd ${directory} && ${composeCmd} up -d`);
   }
 
   async composeDown(directory: string): Promise<void> {
-    await this.executeCommand(`cd ${directory} && docker compose down`);
+    const composeCmd = await this.detectComposeCommand();
+    await this.executeCommand(`cd ${directory} && ${composeCmd} down`);
   }
 }
 
