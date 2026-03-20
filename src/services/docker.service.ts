@@ -25,25 +25,35 @@ export class DockerService {
 
     // Try docker compose (v2)
     try {
-      const result = await execAsync('docker compose version', { timeout: 5000 });
-      if (result.stdout || result.stderr) {
+      await execAsync('docker compose version');
+      this.composeCommand = 'docker compose';
+      logger.info('Detected docker compose (v2)');
+      return this.composeCommand;
+    } catch (error: any) {
+      // Check if error contains "unknown command" or similar
+      const errorMsg = error.message?.toLowerCase() || '';
+      if (!errorMsg.includes('unknown') && !errorMsg.includes('not found')) {
+        // Command exists but failed for another reason, still use it
         this.composeCommand = 'docker compose';
-        logger.info('Detected docker compose (v2)');
+        logger.info('Detected docker compose (v2) - command exists');
         return this.composeCommand;
       }
-    } catch (error: any) {
       logger.debug('docker compose not available:', error.message);
     }
 
     // Try docker-compose (v1)
     try {
-      const result = await execAsync('docker-compose version', { timeout: 5000 });
-      if (result.stdout || result.stderr) {
+      await execAsync('docker-compose version');
+      this.composeCommand = 'docker-compose';
+      logger.info('Detected docker-compose (v1)');
+      return this.composeCommand;
+    } catch (error: any) {
+      const errorMsg = error.message?.toLowerCase() || '';
+      if (!errorMsg.includes('unknown') && !errorMsg.includes('not found')) {
         this.composeCommand = 'docker-compose';
-        logger.info('Detected docker-compose (v1)');
+        logger.info('Detected docker-compose (v1) - command exists');
         return this.composeCommand;
       }
-    } catch (error: any) {
       logger.debug('docker-compose not available:', error.message);
     }
 
