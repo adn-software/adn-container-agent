@@ -23,21 +23,31 @@ export class DockerService {
       return this.composeCommand;
     }
 
+    // Try docker compose (v2)
     try {
-      await execAsync('docker compose version');
-      this.composeCommand = 'docker compose';
-      logger.info('Using docker compose (v2)');
-    } catch {
-      try {
-        await execAsync('docker-compose version');
-        this.composeCommand = 'docker-compose';
-        logger.info('Using docker-compose (v1)');
-      } catch {
-        throw new Error('Neither docker compose nor docker-compose is available');
+      const result = await execAsync('docker compose version', { timeout: 5000 });
+      if (result.stdout || result.stderr) {
+        this.composeCommand = 'docker compose';
+        logger.info('Detected docker compose (v2)');
+        return this.composeCommand;
       }
+    } catch (error: any) {
+      logger.debug('docker compose not available:', error.message);
     }
 
-    return this.composeCommand;
+    // Try docker-compose (v1)
+    try {
+      const result = await execAsync('docker-compose version', { timeout: 5000 });
+      if (result.stdout || result.stderr) {
+        this.composeCommand = 'docker-compose';
+        logger.info('Detected docker-compose (v1)');
+        return this.composeCommand;
+      }
+    } catch (error: any) {
+      logger.debug('docker-compose not available:', error.message);
+    }
+
+    throw new Error('Neither docker compose nor docker-compose is available');
   }
 
   async listContainers(): Promise<any[]> {
