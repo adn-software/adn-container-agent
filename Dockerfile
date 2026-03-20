@@ -9,8 +9,8 @@ RUN apk add --no-cache docker-cli
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Instalar dependencias
-RUN npm ci --production
+# Instalar dependencias (incluye devDependencies para compilar)
+RUN npm ci
 
 # Copiar código fuente
 COPY src ./src

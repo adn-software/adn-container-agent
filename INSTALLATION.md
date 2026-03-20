@@ -85,7 +85,7 @@ character-set-server = utf8mb4
 collation-server = utf8mb4_unicode_ci
 ```
 
-## Paso 3: Clonar e Instalar el Agente
+## Paso 3: Clonar e instalar el Agente usando Docker
 
 ```bash
 # Clonar repositorio
@@ -93,14 +93,11 @@ cd ~
 git clone <repository-url> adn-container-agent
 cd adn-container-agent
 
-# Instalar dependencias
-npm install
-
-# Compilar TypeScript
-npm run build
+# Construir la imagen (usa el Dockerfile para instalar dependencias y compilar)
+docker compose build
 ```
 
-**Nota:** El repositorio solo contiene el código fuente. Las dependencias (`node_modules`) y el código compilado (`dist`) se generan localmente.
+**Nota:** El repositorio solo contiene el código fuente; el build dentro del contenedor genera `node_modules` y `dist`, por lo que no necesitas tener `npm`/Node instalados en el servidor.
 
 ## Paso 4: Configurar Variables de Entorno
 
