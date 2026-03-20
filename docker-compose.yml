@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  adn-agent:
+    build: .
+    container_name: adn-container-agent
+    restart: unless-stopped
+    ports:
+      - "${AGENT_PORT:-3100}:3100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_DATA_PATH:-/var/docker-data/mariadb}:${DOCKER_DATA_PATH:-/var/docker-data/mariadb}
+      - ${TEMPLATE_PATH:-/home/adn/mariadb-client}:${TEMPLATE_PATH:-/home/adn/mariadb-client}:ro
+    environment:
+      - AGENT_API_KEY=${AGENT_API_KEY}
+      - DOCKER_DATA_PATH=${DOCKER_DATA_PATH:-/var/docker-data/mariadb}
+      - TEMPLATE_PATH=${TEMPLATE_PATH:-/home/adn/mariadb-client}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - adn-agent-network
+
+networks:
+  adn-agent-network:
+    driver: bridge
