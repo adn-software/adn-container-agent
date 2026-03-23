@@ -176,6 +176,20 @@ export class ContainerController {
     }
   }
 
+  async getContainerHealth(req: Request, res: Response) {
+    try {
+      const { slug } = req.params;
+      const health = await containerInspectorService.getContainerHealth(slug);
+      res.json(health);
+    } catch (error: any) {
+      logger.error('Error getting container health:', error);
+      res.status(500).json({
+        error: 'Failed to get container health',
+        message: error.message,
+      });
+    }
+  }
+
   async healthCheck(req: Request, res: Response) {
     res.json({
       status: 'healthy',
