@@ -13,6 +13,7 @@ app.use(express.json());
 
 // Rutas públicas (sin autenticación)
 app.get('/api/health', (req, res) => containerController.healthCheck(req, res));
+app.get('/api/ping', (req, res) => containerController.ping(req, res));
 
 // Rutas protegidas (con autenticación)
 app.use('/api', authMiddleware);
