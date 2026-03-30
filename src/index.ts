@@ -24,7 +24,6 @@ app.get('/api/containers/:slug/status', (req, res) => containerController.getCon
 app.get('/api/containers/:slug/config', (req, res) => containerController.getContainerConfig(req, res));
 app.post('/api/containers/:slug/ping', (req, res) => containerController.pingContainer(req, res));
 app.get('/api/containers/:slug/health', (req, res) => containerController.getContainerHealth(req, res));
-app.get('/api/ping', (req, res) => containerController.ping(req, res));
 
 // Manejo de errores global
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
