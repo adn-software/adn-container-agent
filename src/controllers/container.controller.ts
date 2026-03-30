@@ -201,6 +201,80 @@ export class ContainerController {
   async ping(req: Request, res: Response) {
     res.json({ pong: true });
   }
+
+  async pingContainer(req: Request, res: Response) {
+    try {
+      const { slug } = req.params;
+      const containerName = `mariadb-${slug}`;
+
+      // Verificar si el contenedor existe
+      const exists = await dockerService.containerExists(containerName);
+      if (!exists) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'Container not found',
+          slug,
+          containerName
+        });
+      }
+
+      // Verificar si está corriendo
+      const isRunning = await dockerService.isContainerRunning(containerName);
+      
+      // Obtener información del contenedor
+      const inspection = await dockerService.inspectContainer(containerName);
+      
+      // Extraer puerto del slug
+      const port = containerInspectorService.extractPortFromSlug(slug);
+      
+      // Intentar ping al puerto si está disponible
+      let portAccessible = false;
+      if (port && isRunning) {
+        try {
+          const net = require('net');
+          portAccessible = await new Promise<boolean>((resolve) => {
+            const socket = new net.Socket();
+            const timeout = setTimeout(() => {
+              socket.destroy();
+              resolve(false);
+            }, 3000);
+
+            socket.connect(port, 'localhost', () => {
+              clearTimeout(timeout);
+              socket.destroy();
+              resolve(true);
+            });
+
+            socket.on('error', () => {
+              clearTimeout(timeout);
+              resolve(false);
+            });
+          });
+        } catch (error) {
+          logger.warn(`Error pinging port ${port}:`, error);
+        }
+      }
+
+      res.json({
+        success: true,
+        slug,
+        containerName,
+        status: isRunning ? 'running' : 'stopped',
+        port,
+        portAccessible,
+        state: inspection.State,
+        uptime: inspection.State?.StartedAt,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      logger.error('Error pinging container:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to ping container',
+        message: error.message,
+      });
+    }
+  }
 }
 
 export const containerController = new ContainerController();

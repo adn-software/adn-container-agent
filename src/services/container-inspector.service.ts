@@ -43,6 +43,7 @@ export class ContainerInspectorService {
     try {
       const containerDir = await fileService.getContainerDirectory(slug);
       const mycnfPath = join(containerDir, 'config', 'my.cnf');
+      const envPath = join(containerDir, '.env');
       
       const exists = await fileService.fileExists(mycnfPath);
       if (!exists) {
@@ -52,10 +53,26 @@ export class ContainerInspectorService {
       const mycnfContent = await fileService.readFile(mycnfPath);
       const innodbMemory = memoryService.extractInnodbMemory(mycnfContent);
       
+      // Leer archivo .env para obtener memoria del contenedor
+      let memoryLimit = '2.6g';
+      try {
+        const envExists = await fileService.fileExists(envPath);
+        if (envExists) {
+          const envContent = await fileService.readFile(envPath);
+          const memMatch = envContent.match(/MEM_LIMIT=(.+)/);
+          if (memMatch) {
+            memoryLimit = memMatch[1].trim();
+          }
+        }
+      } catch (error) {
+        logger.warn(`Could not read .env file for ${slug}:`, error);
+      }
+      
       return {
         slug,
         mycnfContent,
         innodbBufferPoolSize: innodbMemory,
+        memoryLimit,
       };
     } catch (error) {
       logger.error(`Error getting config for ${slug}:`, error);
