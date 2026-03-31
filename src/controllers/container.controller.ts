@@ -282,14 +282,29 @@ export class ContainerController {
       const { slug } = req.params;
       const { memoryLimit, mycnfContent } = req.body;
 
+      logger.info(`Updating container ${slug}`, {
+        hasMemoryLimit: !!memoryLimit,
+        hasMycnfContent: !!mycnfContent,
+        memoryLimit,
+        mycnfContentLength: mycnfContent?.length,
+      });
+
       if (!slug || !memoryLimit || !mycnfContent) {
+        logger.error('Missing required fields', {
+          slug: !!slug,
+          memoryLimit: !!memoryLimit,
+          mycnfContent: !!mycnfContent,
+        });
         return res.status(400).json({
           success: false,
           error: 'Missing required fields: slug, memoryLimit, mycnfContent',
+          received: {
+            slug: !!slug,
+            memoryLimit: !!memoryLimit,
+            mycnfContent: !!mycnfContent,
+          },
         });
       }
-
-      logger.info(`Updating container ${slug}`);
 
       // 1. Validar my.cnf
       const validation = mycnfValidatorService.validateMyCnf(mycnfContent);

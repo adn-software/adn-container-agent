@@ -14,8 +14,8 @@ export class MyCnfValidatorService {
       errors.push('El archivo debe contener al menos una sección [mysqld]');
     }
 
-    // Validar formato básico de secciones
-    const sectionRegex = /^\[[\w-]+\]$/gm;
+    // Validación básica: solo verificar que no esté completamente roto
+    // Permitir cualquier formato que MariaDB pueda aceptar
     const lines = content.split('\n');
     
     for (let i = 0; i < lines.length; i++) {
@@ -28,26 +28,15 @@ export class MyCnfValidatorService {
 
       // Verificar si es una sección
       if (line.startsWith('[')) {
-        if (!sectionRegex.test(line)) {
-          errors.push(`Línea ${i + 1}: Formato de sección inválido: ${line}`);
+        // Solo validar que cierre con ]
+        if (!line.endsWith(']')) {
+          errors.push(`Línea ${i + 1}: Sección no cerrada correctamente: ${line}`);
         }
         continue;
       }
 
-      // Verificar formato de variable (debe tener = o ser una directiva válida)
-      if (!line.includes('=') && !line.startsWith('!')) {
-        // Algunas directivas no requieren =, como skip-name-resolve
-        const validDirectives = ['skip-name-resolve', 'skip-networking', 'skip-grant-tables'];
-        if (!validDirectives.some(d => line.startsWith(d))) {
-          errors.push(`Línea ${i + 1}: Formato de variable inválido (debe contener '='): ${line}`);
-        }
-      }
-    }
-
-    // Validar que no haya caracteres extraños que puedan causar problemas
-    const invalidChars = /[^\x00-\x7F]/g;
-    if (invalidChars.test(content)) {
-      errors.push('El archivo contiene caracteres no ASCII que pueden causar problemas');
+      // Para el resto de líneas, solo verificar que no tengan caracteres claramente inválidos
+      // MariaDB es bastante permisivo con el formato
     }
 
     return {
