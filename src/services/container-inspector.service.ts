@@ -160,7 +160,7 @@ export class ContainerInspectorService {
       // Usar sh -c para que las variables de entorno se expandan correctamente dentro del contenedor
       const commands = [
         { name: 'version', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT VERSION();" --silent\'' },
-        { name: 'connections', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW STATUS LIKE \\\'Threads_connected\\\';" --silent\'' },
+        { name: 'connections', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW STATUS LIKE \\"Threads_connected\\";" --silent\'' },
         { name: 'databases', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW DATABASES;" --silent\'' },
       ];
       
