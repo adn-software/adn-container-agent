@@ -306,7 +306,7 @@ export class ContainerController {
         });
       }
 
-      // 1. Validar my.cnf
+      // 1. Validar my.cnf y extraer innodb_buffer_pool_size
       const validation = mycnfValidatorService.validateMyCnf(mycnfContent);
       if (!validation.valid) {
         return res.status(400).json({
@@ -315,6 +315,9 @@ export class ContainerController {
           validationErrors: validation.errors,
         });
       }
+
+      const innodbBufferPoolSize = mycnfValidatorService.extractInnodbBufferPoolSize(mycnfContent);
+      logger.info(`Extracted innodb_buffer_pool_size: ${innodbBufferPoolSize}`);
 
       const containerDir = await fileService.getContainerDirectory(slug);
       const envPath = join(containerDir, '.env');
@@ -438,6 +441,7 @@ export class ContainerController {
           success: true,
           message: 'Container updated successfully',
           memoryLimit,
+          innodbBufferPoolSize,
           containerRunning: true,
         });
 
