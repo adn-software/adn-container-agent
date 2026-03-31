@@ -157,10 +157,11 @@ export class ContainerInspectorService {
   private async executeHealthChecks(containerName: string): Promise<any> {
     try {
       // Ejecutar comandos MySQL para obtener métricas
+      // Usar sh -c para que las variables de entorno se expandan correctamente dentro del contenedor
       const commands = [
-        { name: 'version', cmd: 'mysql -u root -p$MYSQL_ROOT_PASSWORD -e "SELECT VERSION();" --silent' },
-        { name: 'connections', cmd: 'mysql -u root -p$MYSQL_ROOT_PASSWORD -e "SHOW STATUS LIKE \'Threads_connected\';" --silent' },
-        { name: 'databases', cmd: 'mysql -u root -p$MYSQL_ROOT_PASSWORD -e "SHOW DATABASES;" --silent' },
+        { name: 'version', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT VERSION();" --silent\'' },
+        { name: 'connections', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW STATUS LIKE \\\'Threads_connected\\\';" --silent\'' },
+        { name: 'databases', cmd: 'sh -c \'mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW DATABASES;" --silent\'' },
       ];
       
       const results: any = {};
