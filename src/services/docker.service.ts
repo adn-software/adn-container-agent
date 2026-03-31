@@ -133,6 +133,11 @@ export class DockerService {
     const composeCmd = await this.detectComposeCommand();
     await this.executeCommand(`cd ${directory} && ${composeCmd} down`);
   }
+
+  async restartContainer(directory: string): Promise<void> {
+    const composeCmd = await this.detectComposeCommand();
+    await this.executeCommand(`cd ${directory} && ${composeCmd} restart`);
+  }
 }
 
 export const dockerService = new DockerService();

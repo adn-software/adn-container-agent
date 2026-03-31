@@ -22,7 +22,8 @@ app.post('/api/containers/create', (req, res) => containerController.createConta
 app.get('/api/containers/list', (req, res) => containerController.listContainers(req, res));
 app.get('/api/containers/:slug/status', (req, res) => containerController.getContainerStatus(req, res));
 app.get('/api/containers/:slug/config', (req, res) => containerController.getContainerConfig(req, res));
-app.post('/api/containers/:slug/ping', (req, res) => containerController.pingContainer(req, res));
+app.post('/api/containers/:slug/ping', authMiddleware, (req, res) => containerController.pingContainer(req, res));
+app.post('/api/containers/:slug/update', authMiddleware, (req, res) => containerController.updateContainer(req, res));
 app.get('/api/containers/:slug/health', (req, res) => containerController.getContainerHealth(req, res));
 
 // Manejo de errores global

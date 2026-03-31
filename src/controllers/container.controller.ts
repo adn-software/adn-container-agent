@@ -3,6 +3,7 @@ import { dockerService } from '../services/docker.service';
 import { fileService } from '../services/file.service';
 import { memoryService } from '../services/memory.service';
 import { containerInspectorService } from '../services/container-inspector.service';
+import { mycnfValidatorService } from '../services/mycnf-validator.service';
 import { logger } from '../services/logger.service';
 import { config } from '../config/config';
 import { join } from 'path';
@@ -271,6 +272,174 @@ export class ContainerController {
       res.status(500).json({
         success: false,
         error: 'Failed to ping container',
+        message: error.message,
+      });
+    }
+  }
+
+  async updateContainer(req: Request, res: Response) {
+    try {
+      const { slug } = req.params;
+      const { memoryLimit, mycnfContent } = req.body;
+
+      if (!slug || !memoryLimit || !mycnfContent) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required fields: slug, memoryLimit, mycnfContent',
+        });
+      }
+
+      logger.info(`Updating container ${slug}`);
+
+      // 1. Validar my.cnf
+      const validation = mycnfValidatorService.validateMyCnf(mycnfContent);
+      if (!validation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid my.cnf configuration',
+          validationErrors: validation.errors,
+        });
+      }
+
+      const containerDir = await fileService.getContainerDirectory(slug);
+      const envPath = join(containerDir, '.env');
+      const mycnfPath = join(containerDir, 'config', 'my.cnf');
+      const timestamp = Date.now();
+      const backupEnvPath = join(containerDir, `.env.backup.${timestamp}`);
+      const backupMycnfPath = join(containerDir, `config/my.cnf.backup.${timestamp}`);
+
+      // 2. Hacer backup de archivos actuales
+      try {
+        const currentEnv = await fileService.readFile(envPath);
+        const currentMycnf = await fileService.readFile(mycnfPath);
+        await fileService.writeFile(backupEnvPath, currentEnv);
+        await fileService.writeFile(backupMycnfPath, currentMycnf);
+        logger.info(`Backups created for ${slug}`);
+      } catch (error: any) {
+        logger.error('Error creating backups:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create backups',
+          message: error.message,
+        });
+      }
+
+      // 3. Aplicar nueva memoria en .env
+      try {
+        const currentEnv = await fileService.readFile(envPath);
+        const updatedEnv = currentEnv.replace(/MEM_LIMIT=.*/g, `MEM_LIMIT=${memoryLimit}`);
+        await fileService.writeFile(envPath, updatedEnv);
+        logger.info(`Updated MEM_LIMIT to ${memoryLimit} for ${slug}`);
+      } catch (error: any) {
+        logger.error('Error updating .env:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to update .env file',
+          message: error.message,
+        });
+      }
+
+      // 4. Aplicar nuevo my.cnf
+      try {
+        await fileService.writeFile(mycnfPath, mycnfContent);
+        logger.info(`Updated my.cnf for ${slug}`);
+      } catch (error: any) {
+        logger.error('Error updating my.cnf:', error);
+        // Rollback .env
+        const backupEnv = await fileService.readFile(backupEnvPath);
+        await fileService.writeFile(envPath, backupEnv);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to update my.cnf file',
+          message: error.message,
+        });
+      }
+
+      // 5. Reiniciar contenedor
+      try {
+        await dockerService.restartContainer(containerDir);
+        logger.info(`Container ${slug} restarted`);
+      } catch (error: any) {
+        logger.error('Error restarting container:', error);
+        // Rollback ambos archivos
+        const backupEnv = await fileService.readFile(backupEnvPath);
+        const backupMycnf = await fileService.readFile(backupMycnfPath);
+        await fileService.writeFile(envPath, backupEnv);
+        await fileService.writeFile(mycnfPath, backupMycnf);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to restart container',
+          message: error.message,
+          rollback: 'Configuration files restored to previous state',
+        });
+      }
+
+      // 6. Esperar 10 segundos
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
+      // 7. Verificar que contenedor está running sin errores
+      try {
+        const containerName = `mariadb-${slug}`;
+        const isRunning = await dockerService.isContainerRunning(containerName);
+        
+        if (!isRunning) {
+          logger.error(`Container ${slug} is not running after restart`);
+          
+          // 8. Rollback: restaurar archivos y reiniciar
+          const backupEnv = await fileService.readFile(backupEnvPath);
+          const backupMycnf = await fileService.readFile(backupMycnfPath);
+          await fileService.writeFile(envPath, backupEnv);
+          await fileService.writeFile(mycnfPath, backupMycnf);
+          
+          try {
+            await dockerService.restartContainer(containerDir);
+            logger.info(`Container ${slug} rolled back and restarted`);
+            
+            // 9. Verificar que rollback fue exitoso
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            const isRunningAfterRollback = await dockerService.isContainerRunning(containerName);
+            
+            return res.status(500).json({
+              success: false,
+              error: 'Container failed to start with new configuration',
+              rollback: 'Configuration restored to previous state',
+              rollbackSuccessful: isRunningAfterRollback,
+              message: 'The container could not start with the new configuration. Previous configuration has been restored.',
+            });
+          } catch (rollbackError: any) {
+            logger.error('Error during rollback:', rollbackError);
+            return res.status(500).json({
+              success: false,
+              error: 'Container failed and rollback also failed',
+              message: 'Critical error: Please check container manually',
+              rollbackError: rollbackError.message,
+            });
+          }
+        }
+
+        // Contenedor está corriendo correctamente
+        logger.info(`Container ${slug} updated successfully`);
+        return res.status(200).json({
+          success: true,
+          message: 'Container updated successfully',
+          memoryLimit,
+          containerRunning: true,
+        });
+
+      } catch (error: any) {
+        logger.error('Error verifying container status:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to verify container status',
+          message: error.message,
+        });
+      }
+
+    } catch (error: any) {
+      logger.error('Error updating container:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update container',
         message: error.message,
       });
     }
