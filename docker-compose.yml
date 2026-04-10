@@ -1,5 +1,5 @@
 version: '3.8'
-
+ 
 services:
   adn-agent:
     build: .
@@ -18,7 +18,15 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     networks:
       - adn-agent-network
-
+    # LÍMITES DE MEMORIA AÑADIDOS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          memory: 128M
+ 
 networks:
   adn-agent-network:
     driver: bridge
