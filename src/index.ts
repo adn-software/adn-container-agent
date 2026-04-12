@@ -4,6 +4,7 @@ import { config } from './config/config';
 import { logger } from './services/logger.service';
 import { authMiddleware } from './middleware/auth.middleware';
 import { containerController } from './controllers/container.controller';
+import { mariadbController } from './controllers/mariadb.controller';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.get('/api/containers/:slug/config', (req, res) => containerController.getCon
 app.post('/api/containers/:slug/ping', authMiddleware, (req, res) => containerController.pingContainer(req, res));
 app.post('/api/containers/:slug/update', authMiddleware, (req, res) => containerController.updateContainer(req, res));
 app.get('/api/containers/:slug/health', (req, res) => containerController.getContainerHealth(req, res));
+app.get('/api/mariadb/discover', (req, res) => mariadbController.discover(req, res));
 
 // Manejo de errores global
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
