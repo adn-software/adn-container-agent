@@ -16,12 +16,12 @@ export class MariaDBController {
       const summary = {
         totalContainers: mariadbContainers.length,
         totalDatabases: mariadbContainers.reduce(
-          (sum, c) => sum + c.databases.length,
+          (sum: number, c: any) => sum + c.databases.length,
           0
         ),
         totalSizeBytes: mariadbContainers.reduce(
-          (sum, c) =>
-            sum + c.databases.reduce((dbSum, db) => dbSum + db.sizeBytes, 0),
+          (sum: number, c: any) =>
+            sum + c.databases.reduce((dbSum: number, db: any) => dbSum + db.sizeBytes, 0),
           0
         ),
       };

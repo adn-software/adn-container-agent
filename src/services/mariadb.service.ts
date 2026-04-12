@@ -4,13 +4,64 @@ import { logger } from './logger.service';
 
 const execAsync = promisify(exec);
 
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+
 export class MariaDBService {
+  private cache = new Map<string, CacheEntry>();
+  private readonly CACHE_TTL = parseInt(process.env.CACHE_TTL || '60000'); // 1 minuto por defecto
+  private readonly DISCOVERY_TIMEOUT = parseInt(process.env.DISCOVERY_TIMEOUT || '30000'); // 30 segundos
+
+  /**
+   * Limpia el caché de descubrimiento
+   */
+  clearCache() {
+    this.cache.clear();
+    logger.info('Discovery cache cleared');
+  }
+
   /**
    * Descubre todos los contenedores MariaDB en el servidor
+   * Implementa caché y timeout configurables
    */
   async discoverContainers() {
+    // Verificar caché
+    const cacheKey = 'discovery';
+    const cached = this.cache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      logger.info('Returning cached discovery results');
+      return cached.data;
+    }
+
     try {
       logger.info('Starting MariaDB discovery');
+
+      // Ejecutar discovery con timeout
+      const discoveryPromise = this.performDiscovery();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Discovery timeout')), this.DISCOVERY_TIMEOUT)
+      );
+
+      const data = await Promise.race([discoveryPromise, timeoutPromise]) as any;
+
+      // Guardar en caché
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+
+      return data;
+    } catch (error) {
+      logger.error('Error discovering MariaDB containers:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Realiza el descubrimiento real de contenedores
+   */
+  private async performDiscovery() {
+    try {
 
       // 1. Obtener todos los contenedores y filtrar por imagen MariaDB
       const { stdout: allContainers } = await execAsync(
@@ -45,19 +96,18 @@ export class MariaDBService {
 
       logger.info(`Found ${containers.length} MariaDB containers`);
 
-      const mariadbContainers = [];
+      // 2. Procesar contenedores en paralelo
+      const results = await Promise.all(
+        containers.map(container =>
+          this.getContainerInfo(container).catch(error => {
+            logger.error(`Error processing container ${container.name}:`, error);
+            return null;
+          })
+        )
+      );
 
-      // 2. Para cada contenedor, obtener información detallada
-      for (const container of containers) {
-        try {
-          const containerInfo = await this.getContainerInfo(container);
-          mariadbContainers.push(containerInfo);
-        } catch (error) {
-          logger.error(`Error processing container ${container.name}:`, error);
-        }
-      }
-
-      return mariadbContainers;
+      // Filtrar resultados nulos (errores)
+      return results.filter(Boolean);
     } catch (error) {
       logger.error('Error discovering MariaDB containers:', error);
       throw error;
