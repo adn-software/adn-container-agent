@@ -1,6 +1,8 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { logger } from './logger.service';
+import { executeWithRetry } from '../utils/retry.util';
+import { validateContainerData, validateMariaDBContainerInfo } from '../utils/validation.util';
 
 const execAsync = promisify(exec);
 
@@ -37,7 +39,12 @@ export class MariaDBService {
     }
 
     try {
-      logger.info('Starting MariaDB discovery');
+      logger.info('Starting MariaDB discovery', {
+        timestamp: new Date().toISOString(),
+        serverId: process.env.SERVER_ID || 'unknown',
+        cacheTTL: this.CACHE_TTL,
+        timeout: this.DISCOVERY_TIMEOUT,
+      });
 
       // Ejecutar discovery con timeout
       const discoveryPromise = this.performDiscovery();
@@ -52,7 +59,11 @@ export class MariaDBService {
 
       return data;
     } catch (error) {
-      logger.error('Error discovering MariaDB containers:', error);
+      logger.error('Error discovering MariaDB containers', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
       throw error;
     }
   }
@@ -91,10 +102,24 @@ export class MariaDBService {
         .filter(line => line)
         .map(line => {
           const [id, name, status] = line.split('|');
-          return { id, name, status };
-        });
+          const container = { id, name, status };
+          
+          // Validar datos del contenedor
+          try {
+            validateContainerData(container);
+          } catch (error) {
+            logger.warn('Invalid container data, skipping', {
+              containerId: id,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            });
+            return null;
+          }
+          
+          return container;
+        })
+        .filter(Boolean) as any[];
 
-      logger.info(`Found ${containers.length} MariaDB containers`);
+      logger.info(`Found ${containers.length} valid MariaDB containers`);
 
       // 2. Procesar contenedores en paralelo
       const results = await Promise.all(
@@ -115,43 +140,67 @@ export class MariaDBService {
   }
 
   /**
-   * Obtiene información detallada de un contenedor
+   * Obtiene información detallada de un contenedor con retry
    */
   private async getContainerInfo(container: any) {
-    // Obtener versión de MariaDB
-    const { stdout: versionOutput } = await execAsync(
-      `docker exec ${container.id} mysql --version`
-    );
-    // Buscar versión en diferentes formatos: "Ver 10.11.6" o "10.11.6-MariaDB"
-    const versionMatch = versionOutput.match(/(?:Ver\s+)?(\d+\.\d+\.\d+)/);
-    const mariadbVersion = versionMatch ? versionMatch[1] : 'unknown';
-
-    // Obtener puerto
-    const { stdout: portOutput } = await execAsync(
-      `docker port ${container.id} 3306 2>/dev/null || echo ""`
-    );
-    const port = portOutput.trim() ? parseInt(portOutput.split(':')[1]) : 3306;
-
-    // Obtener password de root
-    const { stdout: envOutput } = await execAsync(
-      `docker inspect ${container.id} --format '{{range .Config.Env}}{{println .}}{{end}}'`
-    );
-    const rootPasswordMatch = envOutput.match(/MYSQL_ROOT_PASSWORD=(.+)/);
-    const rootPassword = rootPasswordMatch ? rootPasswordMatch[1].trim() : '';
-
-    // Obtener bases de datos
-    const databases = await this.getDatabases(container.id, rootPassword);
-
-    return {
-      containerName: container.name,
+    logger.debug('Getting container info', {
       containerId: container.id,
-      status: container.status.includes('Up') ? 'running' : 'stopped',
-      mariadbVersion,
-      host: 'localhost',
-      port,
-      rootPassword,
-      databases,
-    };
+      containerName: container.name,
+    });
+
+    try {
+      // Obtener versión de MariaDB con retry
+      const { stdout: versionOutput } = await executeWithRetry(
+        () => execAsync(`docker exec ${container.id} mysql --version`),
+        { maxRetries: 2, initialDelay: 500, operationName: `Get version for ${container.name}` }
+      );
+      const versionMatch = versionOutput.match(/(?:Ver\s+)?(\d+\.\d+\.\d+)/);
+      const mariadbVersion = versionMatch ? versionMatch[1] : 'unknown';
+
+      // Obtener puerto
+      const { stdout: portOutput } = await execAsync(
+        `docker port ${container.id} 3306 2>/dev/null || echo ""`
+      );
+      const port = portOutput.trim() ? parseInt(portOutput.split(':')[1]) : 3306;
+
+      // Obtener password de root
+      const { stdout: envOutput } = await execAsync(
+        `docker inspect ${container.id} --format '{{range .Config.Env}}{{println .}}{{end}}'`
+      );
+      const rootPasswordMatch = envOutput.match(/MYSQL_ROOT_PASSWORD=(.+)/);
+      const rootPassword = rootPasswordMatch ? rootPasswordMatch[1].trim() : '';
+
+      // Obtener bases de datos
+      const databases = await this.getDatabases(container.id, rootPassword);
+
+      const containerInfo = {
+        containerName: container.name,
+        containerId: container.id,
+        status: container.status.includes('Up') ? 'running' : 'stopped',
+        mariadbVersion,
+        host: 'localhost',
+        port,
+        rootPassword,
+        databases,
+      };
+
+      // Validar información del contenedor
+      validateMariaDBContainerInfo(containerInfo);
+
+      logger.debug('Container info retrieved successfully', {
+        containerId: container.id,
+        databaseCount: databases.length,
+      });
+
+      return containerInfo;
+    } catch (error) {
+      logger.error('Failed to get container info', {
+        containerId: container.id,
+        containerName: container.name,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
+    }
   }
 
   /**
@@ -205,7 +254,11 @@ export class MariaDBService {
 
       return databases;
     } catch (error) {
-      logger.error(`Error getting databases from container ${containerId}:`, error);
+      logger.error('Error getting databases from container', {
+        containerId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return [];
     }
   }
