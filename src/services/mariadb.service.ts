@@ -12,10 +12,22 @@ export class MariaDBService {
     try {
       logger.info('Starting MariaDB discovery');
 
-      // 1. Obtener contenedores MariaDB
-      const { stdout: containersOutput } = await execAsync(
-        `docker ps --filter "ancestor=mariadb" --format "{{.ID}}|{{.Names}}|{{.Status}}"`
+      // 1. Obtener todos los contenedores y filtrar por imagen MariaDB
+      const { stdout: allContainers } = await execAsync(
+        `docker ps --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}"`
       );
+
+      const mariadbLines = allContainers
+        .trim()
+        .split('\n')
+        .filter(line => line && line.toLowerCase().includes('mariadb'));
+
+      const containersOutput = mariadbLines
+        .map(line => {
+          const parts = line.split('|');
+          return `${parts[0]}|${parts[1]}|${parts[2]}`;
+        })
+        .join('\n');
 
       if (!containersOutput.trim()) {
         logger.info('No MariaDB containers found');
@@ -60,7 +72,8 @@ export class MariaDBService {
     const { stdout: versionOutput } = await execAsync(
       `docker exec ${container.id} mysql --version`
     );
-    const versionMatch = versionOutput.match(/Ver (\d+\.\d+\.\d+)/);
+    // Buscar versión en diferentes formatos: "Ver 10.11.6" o "10.11.6-MariaDB"
+    const versionMatch = versionOutput.match(/(?:Ver\s+)?(\d+\.\d+\.\d+)/);
     const mariadbVersion = versionMatch ? versionMatch[1] : 'unknown';
 
     // Obtener puerto

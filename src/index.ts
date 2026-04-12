@@ -37,20 +37,25 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// Iniciar servidor
-app.listen(config.port, () => {
-  logger.info(`ADN Container Agent listening on port ${config.port}`);
-  logger.info(`Docker data path: ${config.dockerDataPath}`);
-  logger.info(`Template path: ${config.templatePath}`);
-});
+// Exportar app para tests
+export { app };
 
-// Manejo de señales de terminación
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
+// Solo iniciar servidor si no estamos en modo test
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(config.port, () => {
+    logger.info(`ADN Container Agent listening on port ${config.port}`);
+    logger.info(`Docker data path: ${config.dockerDataPath}`);
+    logger.info(`Template path: ${config.templatePath}`);
+  });
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
-});
+  // Manejo de señales de terminación
+  process.on('SIGTERM', () => {
+    logger.info('SIGTERM received, shutting down gracefully');
+    process.exit(0);
+  });
+
+  process.on('SIGINT', () => {
+    logger.info('SIGINT received, shutting down gracefully');
+    process.exit(0);
+  });
+}
