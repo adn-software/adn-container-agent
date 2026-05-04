@@ -14,7 +14,8 @@ interface CacheEntry {
 export class MariaDBService {
   private cache = new Map<string, CacheEntry>();
   private readonly CACHE_TTL = parseInt(process.env.CACHE_TTL || '60000'); // 1 minuto por defecto
-  private readonly DISCOVERY_TIMEOUT = parseInt(process.env.DISCOVERY_TIMEOUT || '30000'); // 30 segundos
+  private readonly DISCOVERY_TIMEOUT = parseInt(process.env.DISCOVERY_TIMEOUT || '120000'); // 2 minutos para 48+ contenedores
+  private readonly CONCURRENCY_LIMIT = parseInt(process.env.DISCOVERY_CONCURRENCY || '2'); // Procesar 5 contenedores en paralelo
 
   /**
    * Limpia el caché de descubrimiento
@@ -119,20 +120,33 @@ export class MariaDBService {
         })
         .filter(Boolean) as any[];
 
-      logger.info(`Found ${containers.length} valid MariaDB containers`);
+      logger.info(`Found ${containers.length} valid MariaDB containers, processing with concurrency limit ${this.CONCURRENCY_LIMIT}`);
 
-      // 2. Procesar contenedores en paralelo
-      const results = await Promise.all(
-        containers.map(container =>
-          this.getContainerInfo(container).catch(error => {
-            logger.error(`Error processing container ${container.name}:`, error);
-            return null;
-          })
-        )
-      );
+      // 2. Procesar contenedores en lotes para limitar concurrencia
+      const results: any[] = [];
+      for (let i = 0; i < containers.length; i += this.CONCURRENCY_LIMIT) {
+        const batch = containers.slice(i, i + this.CONCURRENCY_LIMIT);
+        logger.info(`Processing batch ${Math.floor(i / this.CONCURRENCY_LIMIT) + 1}/${Math.ceil(containers.length / this.CONCURRENCY_LIMIT)} (${batch.length} containers)`);
 
-      // Filtrar resultados nulos (errores)
-      return results.filter(Boolean);
+        const batchResults = await Promise.all(
+          batch.map(container =>
+            this.getContainerInfo(container).catch(error => {
+              logger.error(`Error processing container ${container.name}:`, error);
+              return null;
+            })
+          )
+        );
+
+        results.push(...batchResults.filter(Boolean));
+
+        // Log de progreso cada 10 contenedores
+        if (i + this.CONCURRENCY_LIMIT < containers.length) {
+          logger.info(`Progress: ${results.length}/${containers.length} containers processed`);
+        }
+      }
+
+      logger.info(`Discovery completed: ${results.length}/${containers.length} containers successfully processed`);
+      return results;
     } catch (error) {
       logger.error('Error discovering MariaDB containers:', error);
       throw error;
@@ -140,38 +154,64 @@ export class MariaDBService {
   }
 
   /**
-   * Obtiene información detallada de un contenedor con retry
+   * Ejecuta una promesa con timeout
+   */
+  private async executeWithTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout: ${operation} exceeded ${timeoutMs}ms`)), timeoutMs)
+      ),
+    ]);
+  }
+
+  /**
+   * Obtiene información detallada de un contenedor con retry y timeout
    */
   private async getContainerInfo(container: any) {
+    const CONTAINER_TIMEOUT = 45000; // 45 segundos máximo por contenedor (para contenedores con muchas BDs)
+
     logger.debug('Getting container info', {
       containerId: container.id,
       containerName: container.name,
     });
 
     try {
-      // Obtener versión de MariaDB con retry
-      const { stdout: versionOutput } = await executeWithRetry(
-        () => execAsync(`docker exec ${container.id} mysql --version`),
-        { maxRetries: 2, initialDelay: 500, operationName: `Get version for ${container.name}` }
+      // Obtener versión de MariaDB con retry y timeout
+      const { stdout: versionOutput } = await this.executeWithTimeout(
+        executeWithRetry(
+          () => execAsync(`docker exec ${container.id} mysql --version`),
+          { maxRetries: 2, initialDelay: 500, operationName: `Get version for ${container.name}` }
+        ),
+        CONTAINER_TIMEOUT,
+        `Get version for ${container.name}`
       );
       const versionMatch = versionOutput.match(/(?:Ver\s+)?(\d+\.\d+\.\d+)/);
       const mariadbVersion = versionMatch ? versionMatch[1] : 'unknown';
 
-      // Obtener puerto
-      const { stdout: portOutput } = await execAsync(
-        `docker port ${container.id} 3306 2>/dev/null || echo ""`
+      // Obtener puerto con timeout
+      const { stdout: portOutput } = await this.executeWithTimeout(
+        execAsync(`docker port ${container.id} 3306 2>/dev/null || echo ""`),
+        5000,
+        `Get port for ${container.name}`
       );
       const port = portOutput.trim() ? parseInt(portOutput.split(':')[1]) : 3306;
 
-      // Obtener password de root
-      const { stdout: envOutput } = await execAsync(
-        `docker inspect ${container.id} --format '{{range .Config.Env}}{{println .}}{{end}}'`
+      // Obtener password de root con timeout
+      const { stdout: envOutput } = await this.executeWithTimeout(
+        execAsync(`docker inspect ${container.id} --format '{{range .Config.Env}}{{println .}}{{end}}'`),
+        5000,
+        `Get password for ${container.name}`
       );
       const rootPasswordMatch = envOutput.match(/MYSQL_ROOT_PASSWORD=(.+)/);
       const rootPassword = rootPasswordMatch ? rootPasswordMatch[1].trim() : '';
 
-      // Obtener bases de datos
-      const databases = await this.getDatabases(container.id, rootPassword);
+      // Obtener bases de datos con timeout (40s para contenedores con muchas BDs)
+      const databases = await this.executeWithTimeout(
+        this.getDatabases(container.id, rootPassword),
+        40000,
+        `Get databases for ${container.name}`
+      );
 
       const containerInfo = {
         containerName: container.name,
