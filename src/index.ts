@@ -25,6 +25,8 @@ app.get('/api/containers/:slug/status', (req, res) => containerController.getCon
 app.get('/api/containers/:slug/config', (req, res) => containerController.getContainerConfig(req, res));
 app.post('/api/containers/:slug/ping', authMiddleware, (req, res) => containerController.pingContainer(req, res));
 app.post('/api/containers/:slug/update', authMiddleware, (req, res) => containerController.updateContainer(req, res));
+app.post('/api/containers/:slug/env', authMiddleware, (req, res) => containerController.updateContainerEnv(req, res));
+app.post('/api/containers/:slug/rebuild', authMiddleware, (req, res) => containerController.rebuildContainer(req, res));
 app.get('/api/containers/:slug/health', (req, res) => containerController.getContainerHealth(req, res));
 app.get('/api/mariadb/discover', (req, res) => mariadbController.discover(req, res));
 

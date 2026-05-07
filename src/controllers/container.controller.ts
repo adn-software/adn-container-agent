@@ -463,6 +463,121 @@ export class ContainerController {
       });
     }
   }
+
+  async updateContainerEnv(req: Request, res: Response) {
+    try {
+      const { slug } = req.params;
+      const { envVars } = req.body;
+
+      if (!envVars || typeof envVars !== 'object') {
+        return res.status(400).json({
+          error: 'Missing or invalid envVars',
+          required: 'envVars (object)',
+        });
+      }
+
+      logger.info(`Updating .env for container ${slug}`);
+
+      const containerDir = await fileService.getContainerDirectory(slug);
+      const envPath = join(containerDir, '.env');
+
+      // Verificar que el contenedor existe
+      const exists = await fileService.fileExists(containerDir);
+      if (!exists) {
+        return res.status(404).json({
+          error: 'Container not found',
+          slug,
+        });
+      }
+
+      // Leer el .env actual
+      const currentEnv = await fileService.readFile(envPath);
+      let updatedEnv = currentEnv;
+
+      // Actualizar cada variable
+      for (const [key, value] of Object.entries(envVars)) {
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        if (regex.test(updatedEnv)) {
+          // Actualizar variable existente
+          updatedEnv = updatedEnv.replace(regex, `${key}=${value}`);
+        } else {
+          // Agregar nueva variable al final
+          updatedEnv += `\n${key}=${value}`;
+        }
+      }
+
+      // Escribir el .env actualizado
+      await fileService.writeFile(envPath, updatedEnv);
+
+      logger.info(`✓ .env updated for ${slug}`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Container .env updated successfully',
+        slug,
+        updatedVars: Object.keys(envVars),
+      });
+    } catch (error: any) {
+      logger.error('Error updating container env:', error);
+      res.status(500).json({
+        error: 'Failed to update container env',
+        message: error.message,
+      });
+    }
+  }
+
+  async rebuildContainer(req: Request, res: Response) {
+    try {
+      const { slug } = req.params;
+
+      logger.info(`Rebuilding container ${slug}`);
+
+      const containerDir = await fileService.getContainerDirectory(slug);
+      const containerName = `mariadb-${slug}`;
+
+      // Verificar que el contenedor existe
+      const exists = await fileService.fileExists(containerDir);
+      if (!exists) {
+        return res.status(404).json({
+          error: 'Container not found',
+          slug,
+        });
+      }
+
+      // Hacer down y up del contenedor
+      logger.info(`Stopping container ${containerName}...`);
+      await dockerService.composeDown(containerDir);
+
+      logger.info(`Starting container ${containerName}...`);
+      await dockerService.composeUp(containerDir);
+
+      // Esperar un momento para que el contenedor inicie
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Verificar estado del contenedor
+      const isRunning = await dockerService.isContainerRunning(containerName);
+
+      if (!isRunning) {
+        throw new Error('Container failed to start after rebuild');
+      }
+
+      logger.info(`✓ Container ${containerName} rebuilt successfully`);
+
+      res.status(200).json({
+        success: true,
+        message: 'Container rebuilt successfully',
+        slug,
+        containerName,
+        status: 'running',
+      });
+    } catch (error: any) {
+      logger.error('Error rebuilding container:', error);
+      res.status(500).json({
+        error: 'Failed to rebuild container',
+        message: error.message,
+      });
+    }
+  }
 }
 
 export const containerController = new ContainerController();
